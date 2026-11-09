@@ -219,6 +219,7 @@
         .dot-normal { background: var(--success-color); }
         .dot-alert { background: var(--danger-color); }
         .dot-low { background: var(--secondary-color); }
+        .dot-hum { background: var(--warning-color); }
 
         .sensor-bar {
             display: flex;
@@ -252,10 +253,15 @@
         .marker-pin.normal { background: var(--success-color); }
         .marker-pin.alert { background: var(--danger-color); animation: pulse 1.5s infinite; }
         .marker-pin.low { background: var(--secondary-color); }
+        .marker-pin.hum { background: var(--warning-color); }
         .marker-pin.selected { outline: 3px solid var(--primary-color); outline-offset: 2px; }
 
         .popup-title { font-weight: 700; font-size: 15px; color: var(--primary-color); }
-        .popup-address { color: #7f8c8d; margin-bottom: 6px; }
+        .popup-address { color: #7f8c8d; }
+        .popup-equipment { font-size: 13px; margin-bottom: 6px; }
+        .sensor-bar .sensor-equipment { font-size: 14px; color: var(--primary-color); }
+        .sensor-bar .sensor-equipment b { color: var(--secondary-color); }
+        .status-alert { color: var(--danger-color); font-weight: 600; }
         .popup-values { display: flex; gap: 14px; font-size: 18px; font-weight: 700; }
         .popup-values .t { color: var(--danger-color); }
         .popup-values .h { color: var(--secondary-color); }
@@ -312,6 +318,7 @@
                     <span><i class="dot dot-normal"></i> Normal</span>
                     <span><i class="dot dot-alert"></i> Temperatura alta</span>
                     <span><i class="dot dot-low"></i> Baja temperatura</span>
+                    <span><i class="dot dot-hum"></i> Humedad fuera de rango</span>
                 </div>
             </div>
             <div id="sensor-map"></div>
@@ -321,6 +328,7 @@
             <div>
                 <div class="sensor-name" id="sensor-name">Cargando sensores...</div>
                 <div class="sensor-address" id="sensor-address"></div>
+                <div class="sensor-equipment" id="sensor-equipment"></div>
             </div>
             <select id="sensor-select" class="btn btn-secondary" aria-label="Elegir sensor"></select>
         </div>
@@ -332,6 +340,7 @@
             <div class="stat"><div class="label">Humedad promedio</div><div class="value" id="st-havg">-</div></div>
             <div class="stat"><div class="label">Lecturas 24 h</div><div class="value" id="st-n">-</div></div>
             <div class="stat"><div class="label">Lecturas en alerta</div><div class="value" id="st-alerts">-</div></div>
+            <div class="stat"><div class="label">Minutos sobre el máximo</div><div class="value" id="st-minutes">-</div></div>
         </div>
 
         <div class="dashboard">
@@ -392,6 +401,17 @@
                     <option value="20">Últimas 20 lecturas</option>
                     <option value="50">Últimas 50 lecturas</option>
                 </select>
+                <select id="csv-hours" class="btn btn-secondary" aria-label="Período del CSV">
+                    <option value="24">CSV: últimas 24 h</option>
+                    <option value="72">CSV: últimos 3 días</option>
+                    <option value="168">CSV: últimos 7 días</option>
+                </select>
+                <button class="btn btn-primary" id="download-csv">
+                    <i class="fas fa-file-csv"></i> Descargar CSV
+                </button>
+                <button class="btn btn-secondary" id="download-csv-all">
+                    <i class="fas fa-download"></i> CSV de todos los sensores
+                </button>
             </div>
             <div class="table-wrapper">
                 <table class="history-table">
@@ -452,6 +472,10 @@
         const esc = (s) => String(s).replace(/[&<>"']/g, c =>
             ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         const fmtDate = (ts) => new Date(ts).toLocaleString('es-AR', DATE_FMT);
+        const fmtNum = (v) => Number(v).toLocaleString('es-AR', { maximumFractionDigits: 1 });
+        const rangeText = (th) => `${fmtNum(th.temp_min)} a ${fmtNum(th.temp_max)} °C · ${th.hum_min}–${th.hum_max} % HR`;
+        const statusCss = (st) => st === 'Normal' ? 'status-normal'
+            : st === 'Temperatura Alta' ? 'status-alert' : 'status-warning';
 
         // ============================================================
         // API
@@ -466,7 +490,7 @@
         const fetchSensors = () => api('/sensors');
         const fetchCurrentReading = () => api(`/current-reading?${q()}`);
         const fetchHistory = (limit = 10) => api(`/history?${q()}&limit=${limit}`);
-        const fetchChartData = (hours = 24) => api(`/readings-range?${q()}&hours=${hours}&points=96`);
+        const fetchChartData = (hours = 24) => api(`/readings-range?${q()}&hours=${hours}&points=144`);
         const fetchStats = () => api(`/stats?${q()}`);
         const addSimulatedReading = () => api(`/add-reading?${q()}`, { method: 'POST' });
 
@@ -476,6 +500,7 @@
         function statusClass(status) {
             if (status === 'Temperatura Alta') return 'alert';
             if (status === 'Baja Temperatura') return 'low';
+            if (status === 'Humedad fuera de rango') return 'hum';
             return 'normal';
         }
 
@@ -485,7 +510,7 @@
             const sel = sensor.id === selectedSensorId ? ' selected' : '';
             return L.divIcon({
                 className: '',
-                html: `<div class="marker-pin ${cls}${sel}"><i class="fas fa-cart-shopping"></i></div>`,
+                html: `<div class="marker-pin ${cls}${sel}"><i class="fas ${esc(sensor.icon)}"></i></div>`,
                 iconSize: [30, 30],
                 iconAnchor: [15, 30],
                 popupAnchor: [0, -30]
@@ -499,11 +524,12 @@
                        <span class="t"><i class="fas fa-thermometer-half"></i> ${r.temperature.toFixed(1)}°C</span>
                        <span class="h"><i class="fas fa-tint"></i> ${Math.round(r.humidity)}%</span>
                    </div>
-                   <div class="${r.status === 'Normal' ? 'status-normal' : 'status-warning'}">${esc(r.status)}</div>
+                   <div class="${statusCss(r.status)}">${esc(r.status)}</div>
                    <div class="popup-meta">Última lectura: ${fmtDate(r.timestamp)}</div>`
                 : '<div class="popup-meta">Sin lecturas</div>';
             return `<div class="popup-title">${esc(sensor.name)}</div>
                     <div class="popup-address">${esc(sensor.address)}, ${esc(sensor.barrio)}, CABA</div>
+                    <div class="popup-equipment">${esc(sensor.equipment_label)} · ${rangeText(sensor.thresholds)}</div>
                     ${values}`;
         }
 
@@ -542,7 +568,8 @@
             $('map-summary').innerHTML = `
                 <span><i class="dot dot-normal"></i> Normal (${count('normal')})</span>
                 <span><i class="dot dot-alert"></i> Temperatura alta (${count('alert')})</span>
-                <span><i class="dot dot-low"></i> Baja temperatura (${count('low')})</span>`;
+                <span><i class="dot dot-low"></i> Baja temperatura (${count('low')})</span>
+                <span><i class="dot dot-hum"></i> Humedad fuera de rango (${count('hum')})</span>`;
         }
 
         function renderSensorSelect() {
@@ -559,6 +586,7 @@
             if (!s) return;
             $('sensor-name').textContent = s.name;
             $('sensor-address').textContent = `${s.address}, ${s.barrio}, CABA · ${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}`;
+            $('sensor-equipment').innerHTML = `<i class="fas ${esc(s.icon)}"></i> ${esc(s.equipment_label)} · Rango normal: <b>${rangeText(s.thresholds)}</b>`;
         }
 
         async function updateSensors(fitBounds = false) {
@@ -594,7 +622,11 @@
             humidityValue.textContent = `${Math.round(data.humidity)}%`;
 
             if (data.status !== 'Normal') {
-                alertText.textContent = `Alerta en ${data.sensor.name}: ${data.status}. Temperatura actual: ${data.temperature.toFixed(1)}°C`;
+                const th = data.sensor.thresholds;
+                alertText.textContent = data.status === 'Temperatura Alta'
+                    ? `Alarma en ${data.sensor.name}: el equipo no enfría. Temperatura ${data.temperature.toFixed(1)}°C (máximo ${fmtNum(th.temp_max)}°C)`
+                    : `Alerta en ${data.sensor.name}: ${data.status}. Temperatura ${data.temperature.toFixed(1)}°C, humedad ${Math.round(data.humidity)}%`;
+                globalAlert.style.backgroundColor = data.status === 'Temperatura Alta' ? 'var(--danger-color)' : 'var(--warning-color)';
                 globalAlert.style.display = 'flex';
             } else {
                 globalAlert.style.display = 'none';
@@ -618,7 +650,7 @@
                     <td>${fmtDate(r.timestamp)}</td>
                     <td>${r.temperature.toFixed(1)}°C</td>
                     <td>${Math.round(r.humidity)}%</td>
-                    <td class="${r.status === 'Normal' ? 'status-normal' : 'status-warning'}">${esc(r.status)}</td>
+                    <td class="${statusCss(r.status)}">${esc(r.status)}</td>
                     <td class="source-tag">${esc(r.source)}</td>
                 </tr>
             `).join('');
@@ -666,20 +698,24 @@
                     labels: [],
                     datasets: [
                         lineDataset('Temperatura', '#e74c3c', 'rgba(231, 76, 60, 0.1)'),
-                        thresholdDataset('Límite alto', '#f39c12'),
-                        thresholdDataset('Límite bajo', '#3498db')
+                        thresholdDataset('Máximo', '#e67e22'),
+                        thresholdDataset('Mínimo', '#3498db')
                     ]
                 },
-                options: chartOptions(-23, -13, '°C')
+                options: chartOptions(0, 10, '°C')
             });
 
             humidityChart = new Chart($('humidityChart'), {
                 type: 'line',
                 data: {
                     labels: [],
-                    datasets: [lineDataset('Humedad', '#3498db', 'rgba(52, 152, 219, 0.1)')]
+                    datasets: [
+                        lineDataset('Humedad', '#3498db', 'rgba(52, 152, 219, 0.1)'),
+                        thresholdDataset('Máximo', '#e67e22'),
+                        thresholdDataset('Mínimo', '#16a085')
+                    ]
                 },
-                options: chartOptions(50, 85, '%')
+                options: chartOptions(60, 100, '%')
             });
         }
 
@@ -692,12 +728,19 @@
 
             tempChart.data.labels = labels;
             tempChart.data.datasets[0].data = chartData.temperatures;
-            tempChart.data.datasets[1].data = Array(n).fill(chartData.thresholds.high);
-            tempChart.data.datasets[2].data = Array(n).fill(chartData.thresholds.low);
+            const th = chartData.thresholds;
+            tempChart.data.datasets[1].data = Array(n).fill(th.temp_max);
+            tempChart.data.datasets[2].data = Array(n).fill(th.temp_min);
+            tempChart.options.scales.y.suggestedMin = th.temp_min - 2;
+            tempChart.options.scales.y.suggestedMax = th.temp_max + 4;
             tempChart.update();
 
             humidityChart.data.labels = labels;
             humidityChart.data.datasets[0].data = chartData.humidities;
+            humidityChart.data.datasets[1].data = Array(n).fill(th.hum_max);
+            humidityChart.data.datasets[2].data = Array(n).fill(th.hum_min);
+            humidityChart.options.scales.y.suggestedMin = th.hum_min - 5;
+            humidityChart.options.scales.y.suggestedMax = Math.min(100, th.hum_max + 5);
             humidityChart.update();
         }
 
@@ -709,6 +752,7 @@
             $('st-havg').textContent = `${s.humidity.average}%`;
             $('st-n').textContent = s.temperature.readings_count;
             $('st-alerts').textContent = s.alerts_count;
+            $('st-minutes').textContent = s.minutes_above_range;
         }
 
         async function updateAllData({ skipSensors = false } = {}) {
@@ -748,6 +792,18 @@
             $(id).addEventListener('click', () => updateAllData()));
         $('history-limit').addEventListener('change', () => updateAllData({ skipSensors: true }));
         $('sensor-select').addEventListener('change', (e) => selectSensor(e.target.value));
+
+        function downloadCsv(sensorParam) {
+            const hours = $('csv-hours').value;
+            const a = document.createElement('a');
+            a.href = `${API_BASE_URL}/export.csv?sensor=${sensorParam}&hours=${hours}`;
+            a.download = '';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        }
+        $('download-csv').addEventListener('click', () => downloadCsv(selectedSensorId));
+        $('download-csv-all').addEventListener('click', () => downloadCsv('all'));
 
         $('simulate-reading').addEventListener('click', async () => {
             try {

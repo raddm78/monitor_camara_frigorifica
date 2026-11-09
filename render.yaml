@@ -11,6 +11,6 @@ services:
       - key: PYTHON_VERSION
         value: 3.12.7
       - key: SIM_INTERVAL_SECONDS
-        value: "60"
+        value: "600"
       - key: INGEST_API_KEY
         generateValue: true

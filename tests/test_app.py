@@ -46,8 +46,8 @@ class ApiTest(unittest.TestCase):
 
     def test_seeded_last_24h(self):
         stats = self.client.get("/api/stats?sensor=2").get_json()
-        # 24 h a 1 lectura/min ~ 1440
-        self.assertGreaterEqual(stats["temperature"]["readings_count"], 1400)
+        # 24 h a 1 lectura cada 10 min = 144
+        self.assertGreaterEqual(stats["temperature"]["readings_count"], 143)
 
     def test_current_reading(self):
         d = self.client.get("/api/current-reading").get_json()
@@ -58,9 +58,42 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(len(self.client.get("/api/history?limit=20").get_json()), 20)
 
     def test_range_downsampled(self):
-        d = self.client.get("/api/readings-range?hours=24&points=96").get_json()
-        self.assertLessEqual(len(d["temperatures"]), 97)
+        d = self.client.get("/api/readings-range?hours=24&points=48").get_json()
+        self.assertLessEqual(len(d["temperatures"]), 49)
         self.assertEqual(len(d["temperatures"]), len(d["timestamps"]))
+
+    def test_readings_respect_equipment_ranges(self):
+        for s in self.client.get("/api/sensors").get_json():
+            th = s["thresholds"]
+            hist = self.client.get(f"/api/history?sensor={s['id']}&limit=144").get_json()
+            for r in hist:
+                if r["status"] == "Normal":
+                    self.assertTrue(th["temp_min"] <= r["temperature"] <= th["temp_max"], (s["name"], r))
+                    self.assertTrue(th["hum_min"] <= r["humidity"] <= th["hum_max"], (s["name"], r))
+                if r["status"] == "Temperatura Alta":
+                    self.assertGreater(r["temperature"], th["temp_max"])
+
+    def test_failures_happen(self):
+        mod = self.mod
+        s5 = mod.SENSORS_BY_ID[5]
+        start = mod.utcnow()
+        hits = sum(1 for i in range(6 * 24 * 7)  # una semana cada 10 min
+                   if mod.failure_at(s5, start + mod.timedelta(minutes=10 * i))[0] > 0)
+        self.assertGreater(hits, 0)
+        t, _ = mod.simulate_next(s5, 3.0, 75.0, start)
+        self.assertLessEqual(t, 30)
+
+    def test_csv_export(self):
+        r = self.client.get("/api/export.csv?sensor=2&hours=24")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("attachment", r.headers["Content-Disposition"])
+        lines = r.data.decode("utf-8-sig").splitlines()
+        self.assertTrue(lines[0].startswith("fecha_hora_argentina;"))
+        self.assertGreaterEqual(len(lines), 144)
+        self.assertTrue(all(";Supermercado 2;" in l for l in lines[1:]))
+        all_lines = self.client.get("/api/export.csv?sensor=all").data.decode("utf-8-sig").splitlines()
+        self.assertGreaterEqual(len(all_lines), 8 * 144)
+        self.assertEqual(self.client.get("/api/export.csv?sensor=99").status_code, 404)
 
     def test_simulated_reading(self):
         r = self.client.post("/api/add-reading")
