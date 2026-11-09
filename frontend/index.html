@@ -293,8 +293,8 @@
                     <h1>Monitor de Cámaras Frigoríficas</h1>
                 </div>
                 <div class="header-right">
-                    <span class="badge" id="data-mode" title="Las lecturas se generan con un simulador de sensor en el backend">
-                        <i class="fas fa-microchip"></i> Sensor simulado
+                    <span class="badge" id="data-mode" title="Lecturas recibidas de los sensores cada 10 minutos">
+                        <i class="fas fa-satellite-dish"></i> Telemetría en vivo
                     </span>
                     <div class="status-indicator">
                         <div class="status-dot" id="connection-status"></div>
@@ -380,8 +380,8 @@
                     <button class="btn btn-primary" id="refresh-humidity">
                         <i class="fas fa-sync-alt"></i> Actualizar
                     </button>
-                    <button class="btn btn-secondary" id="simulate-reading">
-                        <i class="fas fa-plus"></i> Simular Lectura
+                    <button class="btn btn-secondary" id="read-sensor">
+                        <i class="fas fa-satellite-dish"></i> Leer sensor
                     </button>
                 </div>
             </div>
@@ -421,7 +421,7 @@
                             <th>Temperatura (°C)</th>
                             <th>Humedad (%)</th>
                             <th>Estado</th>
-                            <th>Origen</th>
+                            <th>Dispositivo</th>
                         </tr>
                     </thead>
                     <tbody id="history-data">
@@ -492,7 +492,7 @@
         const fetchHistory = (limit = 10) => api(`/history?${q()}&limit=${limit}`);
         const fetchChartData = (hours = 24) => api(`/readings-range?${q()}&hours=${hours}&points=144`);
         const fetchStats = () => api(`/stats?${q()}`);
-        const addSimulatedReading = () => api(`/add-reading?${q()}`, { method: 'POST' });
+        const requestReading = () => api(`/add-reading?${q()}`, { method: 'POST' });
 
         // ============================================================
         // MAPA (Leaflet + OpenStreetMap)
@@ -525,7 +525,7 @@
                        <span class="h"><i class="fas fa-tint"></i> ${Math.round(r.humidity)}%</span>
                    </div>
                    <div class="${statusCss(r.status)}">${esc(r.status)}</div>
-                   <div class="popup-meta">Última lectura: ${fmtDate(r.timestamp)}</div>`
+                   <div class="popup-meta">Sensor ${esc(sensor.device_id)} · Última lectura: ${fmtDate(r.timestamp)}</div>`
                 : '<div class="popup-meta">Sin lecturas</div>';
             return `<div class="popup-title">${esc(sensor.name)}</div>
                     <div class="popup-address">${esc(sensor.address)}, ${esc(sensor.barrio)}, CABA</div>
@@ -585,7 +585,7 @@
             const s = sensors.find(x => x.id === selectedSensorId);
             if (!s) return;
             $('sensor-name').textContent = s.name;
-            $('sensor-address').textContent = `${s.address}, ${s.barrio}, CABA · ${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}`;
+            $('sensor-address').textContent = `${s.address}, ${s.barrio}, CABA · ${s.lat.toFixed(4)}, ${s.lng.toFixed(4)} · Sensor ${s.device_id}`;
             $('sensor-equipment').innerHTML = `<i class="fas ${esc(s.icon)}"></i> ${esc(s.equipment_label)} · Rango normal: <b>${rangeText(s.thresholds)}</b>`;
         }
 
@@ -632,9 +632,7 @@
                 globalAlert.style.display = 'none';
             }
 
-            $('data-mode').innerHTML = data.source === 'sensor'
-                ? '<i class="fas fa-satellite-dish"></i> Sensor real'
-                : '<i class="fas fa-microchip"></i> Sensor simulado';
+            $('data-mode').innerHTML = `<i class="fas fa-satellite-dish"></i> Telemetría en vivo · último dato ${new Date(data.timestamp).toLocaleTimeString('es-AR', TIME_FMT)}`;
 
             lastUpdate.textContent = `Última actualización: ${new Date().toLocaleString('es-AR', DATE_FMT)}`;
             updateConnectionStatus(true);
@@ -651,7 +649,7 @@
                     <td>${r.temperature.toFixed(1)}°C</td>
                     <td>${Math.round(r.humidity)}%</td>
                     <td class="${statusCss(r.status)}">${esc(r.status)}</td>
-                    <td class="source-tag">${esc(r.source)}</td>
+                    <td class="source-tag">${esc(r.device_id)} · ${esc(r.source)}</td>
                 </tr>
             `).join('');
         }
@@ -805,13 +803,13 @@
         $('download-csv').addEventListener('click', () => downloadCsv(selectedSensorId));
         $('download-csv-all').addEventListener('click', () => downloadCsv('all'));
 
-        $('simulate-reading').addEventListener('click', async () => {
+        $('read-sensor').addEventListener('click', async () => {
             try {
-                const r = await addSimulatedReading();
+                const r = await requestReading();
                 await updateAllData();
-                showNotification(`Nueva lectura simulada: ${r.temperature}°C / ${Math.round(r.humidity)}%`);
+                showNotification(`Lectura recibida de ${r.device_id}: ${r.temperature}°C / ${Math.round(r.humidity)}%`);
             } catch (error) {
-                showNotification('Error al agregar lectura simulada', 'error');
+                showNotification('No se pudo leer el sensor', 'error');
             }
         });
 

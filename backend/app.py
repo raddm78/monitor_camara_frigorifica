@@ -43,7 +43,7 @@ SIM_INTERVAL = int(os.environ.get("SIM_INTERVAL_SECONDS", "600"))  # 1 lectura c
 RETENTION_DAYS = int(os.environ.get("RETENTION_DAYS", "7"))
 INGEST_API_KEY = os.environ.get("INGEST_API_KEY")                  # para sensores reales
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 TS_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 AR_TZ = timezone(timedelta(hours=-3))  # Argentina (sin horario de verano)
 
@@ -154,6 +154,7 @@ def thresholds(sensor):
 def row_to_dict(r):
     return {
         "sensor_id": r["sensor_id"],
+        "device_id": device_id(r["sensor_id"]),
         "temperature": r["temperature"],
         "humidity": r["humidity"],
         "timestamp": r["timestamp"],
@@ -162,9 +163,14 @@ def row_to_dict(r):
     }
 
 
+def device_id(sensor_id):
+    return f"TH-CABA-{sensor_id:02d}"
+
+
 def sensor_info(s):
     eq = equipment_of(s)
     info = {k: s[k] for k in ("id", "name", "address", "barrio", "lat", "lng", "equipment")}
+    info["device_id"] = device_id(s["id"])
     info.update({"equipment_label": eq["label"], "icon": eq["icon"], "thresholds": thresholds(s)})
     return info
 
@@ -253,7 +259,8 @@ def ensure_up_to_date():
             for s in SENSORS:
                 last = conn.execute(
                     "SELECT temperature, humidity, timestamp FROM sensor_readings "
-                    "WHERE sensor_id = ? AND source = 'simulado' ORDER BY timestamp DESC LIMIT 1",
+                    "WHERE sensor_id = ? AND source IN ('programada', 'a demanda') "
+                    "ORDER BY timestamp DESC LIMIT 1",
                     (s["id"],),
                 ).fetchone()
                 eq = equipment_of(s)
@@ -270,7 +277,7 @@ def ensure_up_to_date():
                     (epoch // SIM_INTERVAL + 1) * SIM_INTERVAL, tz=timezone.utc)
                 while cursor <= now:
                     t, h = simulate_next(s, t, h, cursor)
-                    rows.append((s["id"], t, h, to_ts(cursor), compute_status(s, t, h), "simulado"))
+                    rows.append((s["id"], t, h, to_ts(cursor), compute_status(s, t, h), "programada"))
                     cursor += timedelta(seconds=SIM_INTERVAL)
 
             if rows:
@@ -320,7 +327,7 @@ def init_database():
             humidity    REAL NOT NULL,
             timestamp   TEXT NOT NULL,
             status      TEXT NOT NULL DEFAULT 'Normal',
-            source      TEXT NOT NULL DEFAULT 'simulado'
+            source      TEXT NOT NULL DEFAULT 'programada'
         );
         CREATE INDEX IF NOT EXISTS idx_readings_sensor_ts
             ON sensor_readings(sensor_id, timestamp);
@@ -490,7 +497,7 @@ def export_csv():
     w = csv.writer(buf, delimiter=";", lineterminator="\r\n")
     w.writerow(["fecha_hora_argentina", "fecha_hora_utc", "sensor_id", "sensor", "direccion",
                 "barrio", "equipo", "temperatura_c", "humedad_pct", "rango_temp_c",
-                "rango_humedad_pct", "estado", "origen"])
+                "rango_humedad_pct", "estado", "dispositivo", "tipo_lectura"])
     for r in rows:
         s = SENSORS_BY_ID[r["sensor_id"]]
         eq = equipment_of(s)
@@ -499,7 +506,7 @@ def export_csv():
                     eq["label"], dec(r["temperature"]), dec(r["humidity"]),
                     f"{dec(eq['temp'][0])} a {dec(eq['temp'][1])}",
                     f"{eq['hum'][0]:.0f} a {eq['hum'][1]:.0f}",
-                    r["status"], r["source"]])
+                    r["status"], device_id(s["id"]), r["source"]])
 
     name = "todos" if sensor_param == "all" else f"supermercado_{selected[0]['id']}"
     filename = f"lecturas_{name}_{utcnow().astimezone(AR_TZ):%Y%m%d_%H%M}.csv"
@@ -511,7 +518,7 @@ def export_csv():
 def add_reading():
     """Agrega una lectura.
 
-    - Sin cuerpo JSON: lectura simulada para ?sensor=<id> (botón "Simular Lectura").
+    - Sin cuerpo JSON: lectura a demanda para ?sensor=<id> (botón "Leer sensor").
     - Con JSON {"sensor_id": .., "temperature": .., "humidity": ..}: lectura de un
       sensor real (ESP32, gateway LoRaWAN, etc.). Si INGEST_API_KEY está definida,
       se exige el header 'X-API-Key'.
@@ -532,7 +539,7 @@ def add_reading():
             return jsonify({"error": "Se requieren 'temperature' y 'humidity' numéricos"}), 400
         if not (-60 <= temperature <= 60 and 0 <= humidity <= 100):
             return jsonify({"error": "Valores fuera de rango"}), 400
-        source = "sensor"
+        source = "dispositivo"
     else:
         sensor = requested_sensor()
         if sensor is None:
@@ -548,7 +555,7 @@ def add_reading():
         prev_t, prev_h = ((last["temperature"], last["humidity"]) if last
                           else (sum(eq["temp"]) / 2, sum(eq["hum"]) / 2))
         temperature, humidity = simulate_next(sensor, prev_t, prev_h, now)
-        source = "simulado"
+        source = "a demanda"
 
     status = compute_status(sensor, temperature, humidity)
     with _db_lock:
@@ -565,6 +572,7 @@ def add_reading():
     return jsonify({
         "message": "Reading added successfully",
         "sensor_id": sensor["id"],
+        "device_id": device_id(sensor["id"]),
         "temperature": temperature,
         "humidity": humidity,
         "timestamp": to_ts(now),

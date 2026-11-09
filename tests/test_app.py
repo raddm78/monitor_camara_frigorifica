@@ -98,7 +98,7 @@ class ApiTest(unittest.TestCase):
     def test_simulated_reading(self):
         r = self.client.post("/api/add-reading")
         self.assertEqual(r.status_code, 201)
-        self.assertEqual(r.get_json()["source"], "simulado")
+        self.assertEqual(r.get_json()["source"], "a demanda")
 
     def test_real_sensor_requires_key(self):
         body = {"sensor_id": 4, "temperature": -12.0, "humidity": 70}
@@ -107,7 +107,8 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(r.status_code, 201)
         self.assertEqual(r.get_json()["status"], "Temperatura Alta")
         cur = self.client.get("/api/current-reading?sensor=4").get_json()
-        self.assertEqual(cur["source"], "sensor")
+        self.assertEqual(cur["source"], "dispositivo")
+        self.assertEqual(cur["device_id"], "TH-CABA-04")
 
     def test_invalid_payload(self):
         r = self.client.post("/api/add-reading", json={"temperature": "x"},

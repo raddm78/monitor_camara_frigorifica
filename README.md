@@ -41,8 +41,8 @@ Alarmas: **Temperatura Alta** si supera el máximo (el equipo no enfría), **Baj
 - Temperatura y humedad actuales, con alarma cuando el equipo sale de su rango normal.
 - Gráficas de las últimas 24 h con líneas de máximo y mínimo del equipo.
 - Panel de estadísticas de 24 h: promedio, mínima, máxima, cantidad de lecturas y lecturas en alerta.
-- Historial de las últimas N lecturas, con origen (`simulado` / `sensor`).
-- Botón "Simular Lectura" y refresco automático cada 30 s.
+- Historial de las últimas N lecturas, con ID de dispositivo y tipo de lectura (programada / a demanda).
+- Botón "Leer sensor" (lectura a demanda) y refresco automático cada 30 s.
 - Ingesta de sensores reales protegida con API key.
 
 ## Arquitectura
