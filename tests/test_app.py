@@ -27,8 +27,25 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn(b"Monitor de C", r.data)
 
+    def test_sensors_in_caba(self):
+        sensors = self.client.get("/api/sensors").get_json()
+        self.assertEqual(len(sensors), 8)
+        for s in sensors:
+            self.assertTrue(s["name"].startswith("Supermercado"))
+            # Caja aproximada de la Ciudad de Buenos Aires
+            self.assertTrue(-34.71 < s["lat"] < -34.52, s)
+            self.assertTrue(-58.54 < s["lng"] < -58.33, s)
+            self.assertIsNotNone(s["last_reading"])
+
+    def test_per_sensor_data(self):
+        h3 = self.client.get("/api/history?sensor=3&limit=5").get_json()
+        self.assertTrue(all(r["sensor_id"] == 3 for r in h3))
+        cur = self.client.get("/api/current-reading?sensor=3").get_json()
+        self.assertEqual(cur["sensor"]["name"], "Supermercado 3")
+        self.assertEqual(self.client.get("/api/stats?sensor=99").status_code, 404)
+
     def test_seeded_last_24h(self):
-        stats = self.client.get("/api/stats").get_json()
+        stats = self.client.get("/api/stats?sensor=2").get_json()
         # 24 h a 1 lectura/min ~ 1440
         self.assertGreaterEqual(stats["temperature"]["readings_count"], 1400)
 
@@ -51,12 +68,12 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(r.get_json()["source"], "simulado")
 
     def test_real_sensor_requires_key(self):
-        body = {"temperature": -12.0, "humidity": 70}
+        body = {"sensor_id": 4, "temperature": -12.0, "humidity": 70}
         self.assertEqual(self.client.post("/api/add-reading", json=body).status_code, 401)
         r = self.client.post("/api/add-reading", json=body, headers={"X-API-Key": "secreto"})
         self.assertEqual(r.status_code, 201)
         self.assertEqual(r.get_json()["status"], "Temperatura Alta")
-        cur = self.client.get("/api/current-reading").get_json()
+        cur = self.client.get("/api/current-reading?sensor=4").get_json()
         self.assertEqual(cur["source"], "sensor")
 
     def test_invalid_payload(self):

@@ -1,16 +1,22 @@
-# ❄️ Monitor de Cámara Frigorífica — Dashboard IoT
+# ❄️ Monitor de Cámaras Frigoríficas — Dashboard IoT
 
-Dashboard web para monitorear **temperatura y humedad** de una cámara frigorífica en tiempo real.
-Backend en **Python / Flask** con API REST y base **SQLite**; frontend en **HTML + CSS + JavaScript** con **Chart.js**.
+Dashboard web para monitorear en tiempo real la **temperatura y humedad** de las cámaras frigoríficas
+de 8 supermercados de la Ciudad de Buenos Aires, con **mapa de sensores**.
+Backend en **Python / Flask** con API REST y base **SQLite**; frontend en **HTML + CSS + JavaScript**
+con **Chart.js** y **Leaflet / OpenStreetMap**.
 
-> 🔗 **Demo en vivo:** `https://<tu-servicio>.onrender.com` *(reemplazar después del deploy)*
+> 🔗 **Demo en vivo:** https://monitor-camara-frigorifica.onrender.com
+> *(plan gratuito: la primera carga tras un rato sin visitas puede tardar unos segundos)*
 
-Por defecto el backend **simula un sensor** de forma realista (caminata aleatoria alrededor del setpoint de −18 °C,
+Por defecto el backend **simula los sensores** de forma realista (caminata aleatoria alrededor del setpoint de −18 °C,
 ciclos de descongelamiento cada 6 h y aperturas de puerta aleatorias), así la demo siempre muestra datos vivos.
 Un sensor real (ESP32, gateway LoRaWAN/Sigfox, etc.) puede enviar lecturas por HTTP al mismo endpoint.
 
 ## Funcionalidades
 
+- Mapa de CABA con un marcador por supermercado, coloreado según su estado (normal / temperatura alta / baja).
+  Al hacer clic se ve nombre, dirección, temperatura y humedad, y el dashboard pasa a mostrar ese sensor.
+- Selector de sensor; el "Supermercado 5" simula un compresor degradado para mostrar alertas.
 - Temperatura y humedad actuales, con alerta cuando la temperatura sale del rango (−21 °C a −15 °C).
 - Gráficas de las últimas 24 h con líneas de umbral (datos promediados en 96 tramos).
 - Panel de estadísticas de 24 h: promedio, mínima, máxima, cantidad de lecturas y lecturas en alerta.
@@ -21,7 +27,7 @@ Un sensor real (ESP32, gateway LoRaWAN/Sigfox, etc.) puede enviar lecturas por H
 ## Arquitectura
 
 ```
- Sensor (ESP32 / gateway)  ──POST /api/add-reading──┐
+ Sensores (ESP32 / gateway) ─POST /api/add-reading──┐
                                                     ▼
  Navegador ◀──── HTML + JSON ──── Flask (gunicorn) ──── SQLite
                                      │
@@ -38,11 +44,14 @@ guardada. Así el historial queda continuo aunque el hosting gratuito duerma el 
 |---|---|---|
 | GET | `/` | Dashboard |
 | GET | `/api/health` | Health check |
-| GET | `/api/current-reading` | Última lectura |
-| GET | `/api/history?limit=N` | Últimas N lecturas (máx. 500) |
-| GET | `/api/readings-range?hours=24&points=96` | Serie para gráficas (promediada) |
-| GET | `/api/stats` | Estadísticas de las últimas 24 h |
-| POST | `/api/add-reading` | Sin body: lectura simulada · Con JSON: lectura de sensor real |
+| GET | `/api/sensors` | Sensores con ubicación (lat/lng, dirección) y última lectura |
+| GET | `/api/current-reading?sensor=ID` | Última lectura del sensor |
+| GET | `/api/history?sensor=ID&limit=N` | Últimas N lecturas (máx. 500) |
+| GET | `/api/readings-range?sensor=ID&hours=24&points=96` | Serie para gráficas (promediada) |
+| GET | `/api/stats?sensor=ID` | Estadísticas de las últimas 24 h |
+| POST | `/api/add-reading?sensor=ID` | Sin body: lectura simulada · Con JSON: lectura de sensor real |
+
+Si se omite `sensor`, se usa el sensor 1.
 
 Enviar una lectura real:
 
@@ -50,7 +59,7 @@ Enviar una lectura real:
 curl -X POST https://<tu-servicio>.onrender.com/api/add-reading \
   -H "Content-Type: application/json" \
   -H "X-API-Key: <INGEST_API_KEY>" \
-  -d '{"temperature": -18.4, "humidity": 66}'
+  -d '{"sensor_id": 3, "temperature": -18.4, "humidity": 66}'
 ```
 
 ## Correr en local
@@ -85,9 +94,11 @@ También incluye `Dockerfile` (Fly.io, Google Cloud Run, Railway) y `Procfile` (
 | `DATABASE_PATH` | `backend/sensor_data.db` | Ruta del archivo SQLite |
 | `SIMULATION_ENABLED` | `true` | `false` para mostrar solo datos de sensores reales |
 | `SIM_INTERVAL_SECONDS` | `60` | Intervalo entre lecturas simuladas |
-| `RETENTION_DAYS` | `7` | Días de historial que se conservan |
+| `RETENTION_DAYS` | `3` | Días de historial que se conservan |
 | `INGEST_API_KEY` | *(vacío)* | Si está definida, se exige en `X-API-Key` para lecturas reales |
 
 ## Stack
 
-Python 3 · Flask · gunicorn · SQLite · HTML5 / CSS3 / JavaScript · Chart.js · Font Awesome · Render / Docker
+Python 3 · Flask · gunicorn · SQLite · HTML5 / CSS3 / JavaScript · Chart.js · Leaflet · OpenStreetMap · Font Awesome · Render / Docker
+
+> Las direcciones y coordenadas de los supermercados son ilustrativas.
