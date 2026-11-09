@@ -8,6 +8,8 @@ con **Chart.js** y **Leaflet / OpenStreetMap**.
 > 🔗 **Demo en vivo:** https://monitor-camara-frigorifica.onrender.com
 > *(plan gratuito: la primera carga tras un rato sin visitas puede tardar unos segundos)*
 
+[![Dashboard: mapa de sensores en CABA, estadísticas y gráficas con una falla de frío](docs/dashboard.jpg)](https://monitor-camara-frigorifica.onrender.com)
+
 Por defecto el backend **simula los sensores**: una lectura cada 10 minutos que varía al azar dentro del
 rango normal de cada tipo de equipo, y cada tanto una **falla** (el equipo deja de enfriar) que lleva la
 temperatura por encima del rango durante 40–120 minutos y dispara la alarma. Un sensor real (ESP32,
