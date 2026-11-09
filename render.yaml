@@ -1,0 +1,16 @@
+# Blueprint de Render: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: monitor-camara-frigorifica
+    runtime: python
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: gunicorn --chdir backend app:app --workers 1 --threads 4 --bind 0.0.0.0:$PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: SIM_INTERVAL_SECONDS
+        value: "60"
+      - key: INGEST_API_KEY
+        generateValue: true
